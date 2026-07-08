@@ -4,9 +4,7 @@ plugins {
 }
 
 kotlin {
-    androidTarget {
-        compileSdk = 35
-    }
+    androidTarget()
     jvm("desktop")
 
     sourceSets {
