@@ -61,23 +61,23 @@ fun CardinalPointerScreen(viewModel: AppViewModel?) {
                 CameraControls(
                     swivelDegrees = cam.swivelDegrees,
                     depressionDegrees = cam.depressionDegrees,
-                    onSwivelChange = viewModel::setSwivel,
-                    onDepressionChange = viewModel::setDepression
+                    onSwivelChange = { viewModel?.setSwivel(it) },
+                    onDepressionChange = { viewModel?.setDepression(it) }
                 )
             }
 
             MastControls(
                 mast = state.mast,
-                onHeightChange = viewModel::setTargetHeight,
-                onErect = viewModel::erect,
-                onFold = viewModel::fold
+                onHeightChange = { viewModel?.setTargetHeight(it) },
+                onErect = { viewModel?.erect() },
+                onFold = { viewModel?.fold() }
             )
 
             state.errorMessage?.let { msg ->
                 AlertDialog(
-                    onDismissRequest = viewModel::clearError,
+                    onDismissRequest = { viewModel?.clearError() },
                     confirmButton = {
-                        TextButton(onClick = viewModel::clearError) { Text("OK") }
+                        TextButton(onClick = { viewModel?.clearError() }) { Text("OK") }
                     },
                     title = { Text("Error") },
                     text = { Text(msg) }
