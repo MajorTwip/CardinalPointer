@@ -19,11 +19,11 @@ import kotlinx.coroutines.launch
 data class AppUiState(
     val cameras: Map<CameraDirection, CameraState> = CameraDirection.entries.associateWith { CameraState(it) },
     val mast: MastState = MastState(
-        currentHeight = 0f,
-        targetHeight = 0f,
+        currentHeight = MastState.DEFAULT_MIN_HEIGHT,
+        targetHeight = MastState.DEFAULT_MIN_HEIGHT,
         motionState = MotionState.Idle,
-        minHeight = 0f,
-        maxHeight = 100f
+        minHeight = MastState.DEFAULT_MIN_HEIGHT,
+        maxHeight = MastState.DEFAULT_MAX_HEIGHT
     ),
     val selectedCamera: CameraDirection = CameraDirection.North,
     val errorMessage: String? = null
