@@ -14,4 +14,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "CardinalPointer"
-include(":core", ":androidApp", ":desktopApp")
+include(":core", ":ui", ":androidApp", ":desktopApp")

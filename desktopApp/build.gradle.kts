@@ -13,6 +13,7 @@ kotlin {
         val desktopMain by getting {
             dependencies {
                 implementation(project(":core"))
+                implementation(project(":ui"))
                 implementation(compose.desktop.currentOs)
                 implementation(compose.material3)
             }
