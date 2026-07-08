@@ -1,6 +1,8 @@
 name: Build
 
 on:
+  push:
+    branches: [main]
   release:
     types: [published]
   workflow_dispatch:
@@ -20,9 +22,11 @@ jobs:
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.9
 
       - name: Build Windows MSI
-        run: ./gradlew :desktopApp:packageMsi
+        run: gradle :desktopApp:packageMsi
 
       - name: Upload MSI to release
         if: github.event_name == 'release'
@@ -51,9 +55,11 @@ jobs:
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.9
 
       - name: Build Android APK
-        run: ./gradlew :androidApp:assembleDebug
+        run: gradle :androidApp:assembleDebug
 
       - name: Upload APK to release
         if: github.event_name == 'release'
