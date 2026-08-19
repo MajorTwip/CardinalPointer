@@ -13,12 +13,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -35,9 +34,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.cardinalpointer.core.domain.CameraDirection
@@ -47,20 +46,24 @@ import com.cardinalpointer.core.domain.MotionState
 import com.cardinalpointer.core.viewmodel.AppViewModel
 
 @Composable
-fun CardinalPointerScreen(viewModel: AppViewModel, modifier: Modifier = Modifier) {
+fun CardinalPointerScreen(
+    viewModel: AppViewModel,
+    linkStatus: LinkStatus = LinkStatus.SimulatedOnly,
+    onRetryLink: () -> Unit = {},
+    modifier: Modifier = Modifier
+) {
     val uiState by viewModel.uiState.collectAsState()
-    val camera = uiState.cameras.getValue(uiState.selectedCamera)
 
     Column(
         modifier = modifier
             .fillMaxSize()
             .background(ConsoleColors.Bg)
+            .safeDrawingPadding()
             .verticalScroll(rememberScrollState())
             .padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        ConsoleHeader()
-        ReadoutStrip(uiState.selectedCamera, camera, uiState.mast)
+        ConsoleHeader(linkStatus, onRetryLink)
         AimPanel(
             selected = uiState.selectedCamera,
             cameras = uiState.cameras,
@@ -93,7 +96,7 @@ fun CardinalPointerScreen(viewModel: AppViewModel, modifier: Modifier = Modifier
 }
 
 @Composable
-private fun ConsoleHeader() {
+private fun ConsoleHeader(linkStatus: LinkStatus, onRetryLink: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -108,82 +111,45 @@ private fun ConsoleHeader() {
             Text("CardinalPointer", color = ConsoleColors.Ink, fontWeight = FontWeight.Bold, fontSize = 17.sp)
             Text("AIM CONSOLE", color = ConsoleColors.InkFaint, fontSize = 11.sp, letterSpacing = 1.5.sp)
         }
-        LinkStatus()
+        LinkStatusBadge(linkStatus, onRetryLink)
     }
 }
 
 @Composable
-private fun LinkStatus() {
+private fun LinkStatusBadge(status: LinkStatus, onRetry: () -> Unit) {
     val transition = rememberInfiniteTransition(label = "link")
-    val alpha by transition.animateFloat(
+    val pulse by transition.animateFloat(
         initialValue = 1f,
         targetValue = 0.35f,
         animationSpec = infiniteRepeatable(tween(1200), repeatMode = RepeatMode.Reverse),
         label = "linkAlpha"
     )
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    val dotColor = when {
+        status.isLive -> ConsoleColors.Accent
+        status.isRetryable -> ConsoleColors.Red
+        else -> ConsoleColors.Amber
+    }
+    Row(
+        modifier = Modifier
+            .then(if (status.isRetryable) Modifier.clickable(onClick = onRetry) else Modifier)
+            .padding(4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
         Box(
             Modifier
                 .size(7.dp)
                 .clip(CircleShape)
-                .background(ConsoleColors.Accent.copy(alpha = alpha))
+                .background(dotColor.copy(alpha = if (status.isLive) 1f else pulse))
         )
-        Text("DUMMY LINK · SIMULATED", color = ConsoleColors.InkDim, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
-    }
-}
-
-@Composable
-private fun ReadoutStrip(selected: CameraDirection, camera: CameraState, mast: MastState) {
-    BoxWithConstraints(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
-            .background(ConsoleColors.Panel)
-            .border(1.dp, ConsoleColors.Line, RoundedCornerShape(10.dp))
-    ) {
-        if (maxWidth < 640.dp) {
-            Column(modifier = Modifier.fillMaxWidth()) {
-                StatTile("CAMERA", selected.name.uppercase(), Modifier.fillMaxWidth(), valueColor = ConsoleColors.Accent)
-                StatTile("SWIVEL", swivelLabel(camera.swivelDegrees), Modifier.fillMaxWidth())
-                StatTile("DEPRESSION", depressionLabel(camera.depressionDegrees), Modifier.fillMaxWidth())
-                StatTile("MAST CURRENT", heightLabel(mast.currentHeight), Modifier.fillMaxWidth())
-                StatTile("MAST TARGET", heightLabel(mast.targetHeight), Modifier.fillMaxWidth(), valueColor = ConsoleColors.Accent)
-                Column(modifier = Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("STATE", color = ConsoleColors.InkFaint, fontSize = 10.sp, letterSpacing = 1.sp)
-                    StateChip(mast.motionState)
-                }
-            }
-        } else {
-            Row(modifier = Modifier.fillMaxWidth()) {
-                StatTile("CAMERA", selected.name.uppercase(), Modifier.weight(1f), valueColor = ConsoleColors.Accent)
-                StatDivider()
-                StatTile("SWIVEL", swivelLabel(camera.swivelDegrees), Modifier.weight(1f))
-                StatDivider()
-                StatTile("DEPRESSION", depressionLabel(camera.depressionDegrees), Modifier.weight(1f))
-                StatDivider()
-                StatTile("MAST CURRENT", heightLabel(mast.currentHeight), Modifier.weight(1f))
-                StatDivider()
-                StatTile("MAST TARGET", heightLabel(mast.targetHeight), Modifier.weight(1f), valueColor = ConsoleColors.Accent)
-                StatDivider()
-                Column(modifier = Modifier.weight(1f).padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("STATE", color = ConsoleColors.InkFaint, fontSize = 10.sp, letterSpacing = 1.sp)
-                    StateChip(mast.motionState)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun StatDivider() {
-    Box(Modifier.width(1.dp).fillMaxHeight().background(ConsoleColors.Line))
-}
-
-@Composable
-private fun StatTile(label: String, value: String, modifier: Modifier = Modifier, valueColor: Color = ConsoleColors.Ink) {
-    Column(modifier = modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(label, color = ConsoleColors.InkFaint, fontSize = 10.sp, letterSpacing = 1.sp)
-        Text(value, color = valueColor, fontFamily = FontFamily.Monospace, fontSize = 17.sp)
+        Text(
+            status.label,
+            color = ConsoleColors.InkDim,
+            fontFamily = FontFamily.Monospace,
+            fontSize = 11.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 
@@ -309,16 +275,16 @@ private fun MastPanel(
             .padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Text("MAST", color = ConsoleColors.InkFaint, fontSize = 12.sp, letterSpacing = 1.sp)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("MAST", color = ConsoleColors.InkFaint, fontSize = 12.sp, letterSpacing = 1.sp)
+            StateChip(mast.motionState)
+        }
 
         Row(horizontalArrangement = Arrangement.spacedBy(20.dp), verticalAlignment = Alignment.CenterVertically) {
-            MastGauge(
-                current = mast.currentHeight,
-                target = mast.targetHeight,
-                min = mast.minHeight,
-                max = mast.maxHeight,
-                onTargetChange = onTargetChange
-            )
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Column {
                     Text("CURRENT", color = ConsoleColors.InkFaint, fontSize = 10.sp, letterSpacing = 1.sp)
@@ -329,6 +295,12 @@ private fun MastPanel(
                     Text(heightLabel(mast.targetHeight), color = ConsoleColors.Accent, fontFamily = FontFamily.Monospace, fontSize = 20.sp)
                 }
             }
+            HeightStepper(
+                target = mast.targetHeight,
+                min = mast.minHeight,
+                max = mast.maxHeight,
+                onTargetChange = onTargetChange
+            )
         }
 
         val isBusy = mast.motionState == MotionState.Erecting || mast.motionState == MotionState.Folding
@@ -341,5 +313,35 @@ private fun MastPanel(
             ) { Text("ERECT") }
             OutlinedButton(onClick = onFold, enabled = !isBusy, modifier = Modifier.weight(1f)) { Text("FOLD") }
         }
+    }
+}
+
+private const val MAST_STEP_METERS = 0.5f
+
+@Composable
+private fun HeightStepper(target: Float, min: Float, max: Float, onTargetChange: (Float) -> Unit) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        StepperButton("−") { onTargetChange((target - MAST_STEP_METERS).coerceIn(min, max)) }
+        StepperButton("+") { onTargetChange((target + MAST_STEP_METERS).coerceIn(min, max)) }
+    }
+}
+
+@Composable
+private fun StepperButton(label: String, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(6.dp))
+            .background(ConsoleColors.PanelRaised)
+            .border(1.dp, ConsoleColors.Line, RoundedCornerShape(6.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 10.dp)
+    ) {
+        Text(
+            label,
+            color = ConsoleColors.Ink,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.Bold,
+            fontSize = 16.sp
+        )
     }
 }

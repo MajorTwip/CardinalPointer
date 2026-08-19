@@ -4,7 +4,11 @@ import kotlinx.coroutines.flow.Flow
 
 /** Transport contract — platform adapters implement this interface.
  *
- * Current adapters planned:
+ * Current adapters:
+ * - `BleTransport` (Android, via `BlePeripheral`/`AndroidBlePeripheral`)
+ * - `FakeTransport` (all platforms, simulated fallback)
+ *
+ * Still planned:
  * - `UsbSerialTransport` (Android + Windows)
  * - `AndroidIntentTransport` (future, same contract)
  */

@@ -10,6 +10,7 @@ import com.cardinalpointer.core.transport.FakeTransport
 import com.cardinalpointer.core.viewmodel.AppViewModel
 import com.cardinalpointer.ui.CardinalPointerScreen
 import com.cardinalpointer.ui.ConsoleTheme
+import com.cardinalpointer.ui.LinkStatus
 
 fun main() = application {
     val windowState = rememberWindowState(width = 1180.dp, height = 820.dp)
@@ -20,10 +21,10 @@ fun main() = application {
         state = windowState
     ) {
         val scope = rememberCoroutineScope()
-        // TODO: swap FakeTransport for a real UsbSerialTransport once implemented.
+        // No real transport on desktop yet (BleTransport is Android-only); always simulated.
         val viewModel = remember { AppViewModel(FakeTransport(scope), scope) }
         ConsoleTheme {
-            CardinalPointerScreen(viewModel)
+            CardinalPointerScreen(viewModel, linkStatus = LinkStatus.SimulatedOnly)
         }
     }
 }
