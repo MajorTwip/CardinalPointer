@@ -43,7 +43,7 @@ static void notify(const String& payload) {
     if (statusChar == nullptr || !clientConnected) {
         return;
     }
-    statusChar->setValue(reinterpret_cast<const uint8_t*>(payload.c_str()), payload.length());
+    statusChar->setValue(payload);
     statusChar->notify();
     Serial.print("-> ");
     Serial.println(payload);
@@ -141,8 +141,7 @@ static void setupBle() {
     statusChar = service->createCharacteristic(
         BLE_STATUS_CHAR_UUID,
         NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
-    const String initial = statusLine(0);
-    statusChar->setValue(reinterpret_cast<const uint8_t*>(initial.c_str()), initial.length());
+    statusChar->setValue(statusLine(0));
 
     service->start();
 
