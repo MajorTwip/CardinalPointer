@@ -8,6 +8,7 @@ appcompat               = "1.7.0"
 
 [libraries]
 kotlinx-coroutines-core     = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "coroutines" }
+kotlinx-coroutines-test     = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutines" }
 androidx-activity-compose   = { group = "androidx.activity",     name = "activity-compose",         version.ref = "activity-compose" }
 androidx-appcompat          = { group = "androidx.appcompat",    name = "appcompat",                version.ref = "appcompat" }
 
