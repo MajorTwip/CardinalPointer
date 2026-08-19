@@ -80,11 +80,18 @@ single `POS ... IDLE` on arrival.
 ## Mapping to the app
 
 The CardinalPointer app talks to controllers through the `Transport` contract in
-`core` (`Command` out, `StatusUpdate` in). A future `BleTransport` maps:
+`core` (`Command` out, `StatusUpdate` in). This protocol is implemented by
+`core/.../transport/ble/BleTransport` + `ServoCodec`:
 
 - `Command.SetCameraSwivel(deg)`     → `AZ <deg>`
 - `Command.SetCameraDepression(deg)` → `EL <deg>`
-- `StatusUpdate.CameraSwivel/CameraDepression` ← parsed from `POS` notifications
+- `POS <az> <el> …` notification     → `StatusUpdate.CameraSwivel` + `CameraDepression`
+- `ERR <text>`                       → `StatusUpdate.Error`
 
-Because commands and status are plain text, the protocol is easy to exercise from
-any generic BLE tool (e.g. nRF Connect) before the app adapter exists.
+Mast-oriented commands (`SetMastHeight`, `Erect`, `Fold`) have no meaning for a
+two-servo aimer and are rejected by the transport.
+
+`BleTransport` runs on any platform via the `BlePeripheral` abstraction; the
+Android GATT adapter is `androidApp/.../ble/AndroidBlePeripheral`. Because
+commands and status are plain text, the protocol is also easy to exercise from a
+generic BLE tool (e.g. nRF Connect).
