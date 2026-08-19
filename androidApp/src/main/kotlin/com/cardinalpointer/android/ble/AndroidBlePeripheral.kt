@@ -15,6 +15,8 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.util.UUID
 
 /**
@@ -38,18 +40,28 @@ class AndroidBlePeripheral(
 ) : BlePeripheral {
 
     private val incoming = MutableSharedFlow<ByteArray>(extraBufferCapacity = 64)
+    private val disconnects = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
 
     private var gatt: BluetoothGatt? = null
     private var commandChar: BluetoothGattCharacteristic? = null
     private var pendingConnect: CompletableDeferred<Result<Unit>>? = null
+    private var pendingWrite: CompletableDeferred<Result<Unit>>? = null
+
+    // BluetoothGatt only allows one outstanding characteristic write at a time; a second
+    // writeCharacteristic() call while one is in flight fails to submit. Rapid callers (e.g.
+    // a dragged dial) are serialized here instead of colliding.
+    private val writeMutex = Mutex()
 
     private val callback = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
             when (newState) {
                 BluetoothProfile.STATE_CONNECTED -> g.discoverServices()
-                BluetoothProfile.STATE_DISCONNECTED -> completeConnect(
-                    Result.failure(IllegalStateException("Disconnected (status=$status)"))
-                )
+                BluetoothProfile.STATE_DISCONNECTED -> {
+                    val wasConnected = commandChar != null
+                    completeConnect(Result.failure(IllegalStateException("Disconnected (status=$status)")))
+                    commandChar = null
+                    if (wasConnected) disconnects.tryEmit(Unit)
+                }
             }
         }
 
@@ -87,6 +99,14 @@ class AndroidBlePeripheral(
                 ch.value?.let { incoming.tryEmit(it) }
             }
         }
+
+        override fun onCharacteristicWrite(g: BluetoothGatt, ch: BluetoothGattCharacteristic, status: Int) {
+            if (ch.uuid != COMMAND_UUID) return
+            completeWrite(
+                if (status == BluetoothGatt.GATT_SUCCESS) Result.success(Unit)
+                else Result.failure(IllegalStateException("writeCharacteristic status=$status"))
+            )
+        }
     }
 
     override suspend fun connect(): Result<Unit> {
@@ -96,22 +116,30 @@ class AndroidBlePeripheral(
         return deferred.await()
     }
 
-    override suspend fun write(payload: ByteArray): Result<Unit> {
-        val g = gatt ?: return Result.failure(IllegalStateException("Not connected"))
-        val ch = commandChar ?: return Result.failure(IllegalStateException("Command characteristic unavailable"))
-        return try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+    override suspend fun write(payload: ByteArray): Result<Unit> = writeMutex.withLock {
+        val g = gatt ?: return@withLock Result.failure(IllegalStateException("Not connected"))
+        val ch = commandChar ?: return@withLock Result.failure(IllegalStateException("Command characteristic unavailable"))
+        try {
+            val deferred = CompletableDeferred<Result<Unit>>()
+            pendingWrite = deferred
+
+            val submitted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 val rc = g.writeCharacteristic(ch, payload, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE)
-                if (rc == BluetoothGatt.GATT_SUCCESS) Result.success(Unit)
-                else Result.failure(IllegalStateException("writeCharacteristic rc=$rc"))
+                rc == BluetoothGatt.GATT_SUCCESS
             } else {
                 @Suppress("DEPRECATION")
                 run {
                     ch.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
                     ch.value = payload
-                    if (g.writeCharacteristic(ch)) Result.success(Unit)
-                    else Result.failure(IllegalStateException("writeCharacteristic failed"))
+                    g.writeCharacteristic(ch)
                 }
+            }
+
+            if (!submitted) {
+                pendingWrite = null
+                Result.failure(IllegalStateException("writeCharacteristic failed to submit"))
+            } else {
+                deferred.await()
             }
         } catch (e: SecurityException) {
             Result.failure(e)
@@ -119,6 +147,8 @@ class AndroidBlePeripheral(
     }
 
     override fun notifications(): Flow<ByteArray> = incoming.asSharedFlow()
+
+    override fun connectionLost(): Flow<Unit> = disconnects.asSharedFlow()
 
     override suspend fun close() {
         gatt?.close()
@@ -142,6 +172,11 @@ class AndroidBlePeripheral(
 
     private fun completeConnect(result: Result<Unit>) {
         pendingConnect?.takeIf { !it.isCompleted }?.complete(result)
+    }
+
+    private fun completeWrite(result: Result<Unit>) {
+        pendingWrite?.takeIf { !it.isCompleted }?.complete(result)
+        pendingWrite = null
     }
 
     private companion object {

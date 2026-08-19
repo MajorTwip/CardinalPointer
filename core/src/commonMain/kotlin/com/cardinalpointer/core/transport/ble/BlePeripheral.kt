@@ -20,6 +20,9 @@ interface BlePeripheral {
     /** Notifications received from the status characteristic, one line per emit. */
     fun notifications(): Flow<ByteArray>
 
+    /** Emits once per unexpected disconnect that occurs after a successful [connect]. */
+    fun connectionLost(): Flow<Unit>
+
     /** Tear down the connection. */
     suspend fun close()
 }

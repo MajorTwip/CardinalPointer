@@ -1,5 +1,7 @@
 #include "CommandParser.h"
 
+#include "config.h"
+
 namespace {
 
 // Returns true and writes `out` if `token` is a valid decimal number.
@@ -13,6 +15,23 @@ bool parseFloat(const String& token, float& out) {
         return false;
     }
     out = value;
+    return true;
+}
+
+// Returns true and writes `out` (0..CAMERA_COUNT-1) if `token` is a valid camera id.
+bool parseCamera(const String& token, int& out) {
+    if (token.length() == 0) {
+        return false;
+    }
+    char* end = nullptr;
+    const long value = strtol(token.c_str(), &end, 10);
+    if (end == token.c_str() || *end != '\0') {
+        return false;
+    }
+    if (value < 0 || value >= CAMERA_COUNT) {
+        return false;
+    }
+    out = static_cast<int>(value);
     return true;
 }
 
@@ -32,12 +51,13 @@ ParsedCommand parseCommand(const String& rawLine) {
         return ParsedCommand{}; // CommandType::None
     }
 
-    // Split into up to three whitespace-separated tokens.
-    String tokens[3];
+    // Split into up to four whitespace-separated tokens (verb + camera id +
+    // up to two numeric args).
+    String tokens[4];
     int count = 0;
     int i = 0;
     const int n = line.length();
-    while (i < n && count < 3) {
+    while (i < n && count < 4) {
         while (i < n && isspace(line[i])) i++;
         const int start = i;
         while (i < n && !isspace(line[i])) i++;
@@ -49,53 +69,68 @@ ParsedCommand parseCommand(const String& rawLine) {
     String verb = tokens[0];
     verb.toUpperCase();
 
-    if (verb == "CENTER") {
+    if (verb == "CENTER" || verb == "STOP" || verb == "GET") {
+        if (count < 2) {
+            return fail(verb + " needs <cam>");
+        }
+        int camera;
+        if (!parseCamera(tokens[1], camera)) {
+            return fail(verb + " camera id invalid");
+        }
         ParsedCommand cmd;
-        cmd.type = CommandType::Center;
-        return cmd;
-    }
-    if (verb == "STOP") {
-        ParsedCommand cmd;
-        cmd.type = CommandType::Stop;
-        return cmd;
-    }
-    if (verb == "GET") {
-        ParsedCommand cmd;
-        cmd.type = CommandType::Get;
+        cmd.camera = camera;
+        cmd.type = verb == "CENTER" ? CommandType::Center
+            : verb == "STOP" ? CommandType::Stop
+            : CommandType::Get;
         return cmd;
     }
 
     if (verb == "AIM") {
-        if (count < 3) {
-            return fail("AIM needs <az> <el>");
+        if (count < 4) {
+            return fail("AIM needs <cam> <az> <el>");
+        }
+        int camera;
+        if (!parseCamera(tokens[1], camera)) {
+            return fail("AIM camera id invalid");
         }
         ParsedCommand cmd;
         cmd.type = CommandType::Aim;
-        if (!parseFloat(tokens[1], cmd.azimuth) || !parseFloat(tokens[2], cmd.elevation)) {
+        cmd.camera = camera;
+        if (!parseFloat(tokens[2], cmd.azimuth) || !parseFloat(tokens[3], cmd.elevation)) {
             return fail("AIM angles not numeric");
         }
         return cmd;
     }
 
     if (verb == "AZ") {
-        if (count < 2) {
-            return fail("AZ needs <deg>");
+        if (count < 3) {
+            return fail("AZ needs <cam> <deg>");
+        }
+        int camera;
+        if (!parseCamera(tokens[1], camera)) {
+            return fail("AZ camera id invalid");
         }
         ParsedCommand cmd;
         cmd.type = CommandType::Azimuth;
-        if (!parseFloat(tokens[1], cmd.azimuth)) {
+        cmd.camera = camera;
+        if (!parseFloat(tokens[2], cmd.azimuth)) {
             return fail("AZ angle not numeric");
         }
         return cmd;
     }
 
     if (verb == "EL") {
-        if (count < 2) {
-            return fail("EL needs <deg>");
+        if (count < 3) {
+            return fail("EL needs <cam> <deg>");
+        }
+        int camera;
+        if (!parseCamera(tokens[1], camera)) {
+            return fail("EL camera id invalid");
         }
         ParsedCommand cmd;
         cmd.type = CommandType::Elevation;
-        if (!parseFloat(tokens[1], cmd.elevation)) {
+        cmd.camera = camera;
+        if (!parseFloat(tokens[2], cmd.elevation)) {
             return fail("EL angle not numeric");
         }
         return cmd;

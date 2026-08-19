@@ -5,23 +5,36 @@
 #include "ServoAxis.h"
 #include "config.h"
 
-// --- Servo axes ---------------------------------------------------------
-static ServoAxis azimuth(PIN_SERVO_AZIMUTH, AZIMUTH_MIN_DEG, AZIMUTH_MAX_DEG,
-                         AZIMUTH_HOME_DEG);
-static ServoAxis elevation(PIN_SERVO_ELEVATION, ELEVATION_MIN_DEG,
-                           ELEVATION_MAX_DEG, ELEVATION_HOME_DEG);
+// --- Servo axes, one azimuth+elevation pair per camera ------------------
+static ServoAxis azimuthAxes[CAMERA_COUNT] = {
+    ServoAxis(PIN_SERVO_AZIMUTH[0], AZIMUTH_MIN_DEG, AZIMUTH_MAX_DEG, AZIMUTH_HOME_DEG),
+    ServoAxis(PIN_SERVO_AZIMUTH[1], AZIMUTH_MIN_DEG, AZIMUTH_MAX_DEG, AZIMUTH_HOME_DEG),
+    ServoAxis(PIN_SERVO_AZIMUTH[2], AZIMUTH_MIN_DEG, AZIMUTH_MAX_DEG, AZIMUTH_HOME_DEG),
+    ServoAxis(PIN_SERVO_AZIMUTH[3], AZIMUTH_MIN_DEG, AZIMUTH_MAX_DEG, AZIMUTH_HOME_DEG),
+};
+static ServoAxis elevationAxes[CAMERA_COUNT] = {
+    ServoAxis(PIN_SERVO_ELEVATION[0], ELEVATION_MIN_DEG, ELEVATION_MAX_DEG, ELEVATION_HOME_DEG),
+    ServoAxis(PIN_SERVO_ELEVATION[1], ELEVATION_MIN_DEG, ELEVATION_MAX_DEG, ELEVATION_HOME_DEG),
+    ServoAxis(PIN_SERVO_ELEVATION[2], ELEVATION_MIN_DEG, ELEVATION_MAX_DEG, ELEVATION_HOME_DEG),
+    ServoAxis(PIN_SERVO_ELEVATION[3], ELEVATION_MIN_DEG, ELEVATION_MAX_DEG, ELEVATION_HOME_DEG),
+};
+
+static bool wasMoving[CAMERA_COUNT] = {false, false, false, false};
+static unsigned long lastStatusMs[CAMERA_COUNT] = {0, 0, 0, 0};
 
 // --- BLE handles --------------------------------------------------------
 static NimBLECharacteristic* statusChar = nullptr;
 static bool clientConnected = false;
 
-// Build the current status line: "POS <az> <el> <MOVING|IDLE>".
-static String statusLine() {
-    const bool moving = azimuth.moving() || elevation.moving();
+// Build a status line for one camera: "POS <cam> <az> <el> <MOVING|IDLE>".
+static String statusLine(int cam) {
+    const bool moving = azimuthAxes[cam].moving() || elevationAxes[cam].moving();
     String s = "POS ";
-    s += String(azimuth.current(), 1);
+    s += String(cam);
     s += ' ';
-    s += String(elevation.current(), 1);
+    s += String(azimuthAxes[cam].current(), 1);
+    s += ' ';
+    s += String(elevationAxes[cam].current(), 1);
     s += moving ? " MOVING" : " IDLE";
     return s;
 }
@@ -47,35 +60,39 @@ static void applyCommand(const ParsedCommand& cmd) {
             return;
 
         case CommandType::Aim: {
-            const bool okAz = azimuth.setTarget(cmd.azimuth);
-            const bool okEl = elevation.setTarget(cmd.elevation);
-            if (!okAz || !okEl) notify("ERR angle clamped to limits");
+            const bool okAz = azimuthAxes[cmd.camera].setTarget(cmd.azimuth);
+            const bool okEl = elevationAxes[cmd.camera].setTarget(cmd.elevation);
+            if (!okAz || !okEl) notify("ERR " + String(cmd.camera) + " angle clamped to limits");
             break;
         }
 
         case CommandType::Azimuth:
-            if (!azimuth.setTarget(cmd.azimuth)) notify("ERR azimuth clamped");
+            if (!azimuthAxes[cmd.camera].setTarget(cmd.azimuth)) {
+                notify("ERR " + String(cmd.camera) + " azimuth clamped");
+            }
             break;
 
         case CommandType::Elevation:
-            if (!elevation.setTarget(cmd.elevation)) notify("ERR elevation clamped");
+            if (!elevationAxes[cmd.camera].setTarget(cmd.elevation)) {
+                notify("ERR " + String(cmd.camera) + " elevation clamped");
+            }
             break;
 
         case CommandType::Center:
-            azimuth.setTarget(AZIMUTH_HOME_DEG);
-            elevation.setTarget(ELEVATION_HOME_DEG);
+            azimuthAxes[cmd.camera].setTarget(AZIMUTH_HOME_DEG);
+            elevationAxes[cmd.camera].setTarget(ELEVATION_HOME_DEG);
             break;
 
         case CommandType::Stop:
-            azimuth.stop();
-            elevation.stop();
+            azimuthAxes[cmd.camera].stop();
+            elevationAxes[cmd.camera].stop();
             break;
 
         case CommandType::Get:
             break; // just report below
     }
 
-    notify(statusLine());
+    notify(statusLine(cmd.camera));
 }
 
 // --- BLE callbacks ------------------------------------------------------
@@ -107,6 +124,9 @@ class CommandCallbacks : public NimBLECharacteristicCallbacks {
 static void setupBle() {
     NimBLEDevice::init(BLE_DEVICE_NAME);
     NimBLEDevice::setPower(ESP_PWR_LVL_P9);
+    // Default ATT MTU (23 bytes / 20 usable) is tight for 4-camera status
+    // lines like "POS 3 102.5 45.0 MOVING" — request a larger one.
+    NimBLEDevice::setMTU(185);
 
     NimBLEServer* server = NimBLEDevice::createServer();
     server->setCallbacks(new ServerCallbacks());
@@ -121,7 +141,7 @@ static void setupBle() {
     statusChar = service->createCharacteristic(
         BLE_STATUS_CHAR_UUID,
         NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
-    statusChar->setValue(statusLine());
+    statusChar->setValue(statusLine(0));
 
     service->start();
 
@@ -139,33 +159,35 @@ void setup() {
     Serial.println();
     Serial.println("CardinalPointer ESP32 servo interface starting");
 
-    azimuth.begin();
-    elevation.begin();
+    for (int cam = 0; cam < CAMERA_COUNT; cam++) {
+        azimuthAxes[cam].begin();
+        elevationAxes[cam].begin();
+    }
     setupBle();
 }
 
 void loop() {
     static unsigned long lastUpdateMs = millis();
-    static unsigned long lastStatusMs = 0;
-    static bool wasMoving = false;
 
     const unsigned long now = millis();
     const float dt = (now - lastUpdateMs) / 1000.0f;
     lastUpdateMs = now;
 
-    azimuth.update(dt, SLEW_DEG_PER_SEC);
-    elevation.update(dt, SLEW_DEG_PER_SEC);
+    for (int cam = 0; cam < CAMERA_COUNT; cam++) {
+        azimuthAxes[cam].update(dt, SLEW_DEG_PER_SEC);
+        elevationAxes[cam].update(dt, SLEW_DEG_PER_SEC);
 
-    const bool moving = azimuth.moving() || elevation.moving();
+        const bool moving = azimuthAxes[cam].moving() || elevationAxes[cam].moving();
 
-    // Stream progress while moving, and emit one final frame on arrival.
-    if (moving && now - lastStatusMs >= STATUS_INTERVAL_MS) {
-        notify(statusLine());
-        lastStatusMs = now;
-    } else if (!moving && wasMoving) {
-        notify(statusLine());
+        // Stream progress while moving, and emit one final frame on arrival.
+        if (moving && now - lastStatusMs[cam] >= STATUS_INTERVAL_MS) {
+            notify(statusLine(cam));
+            lastStatusMs[cam] = now;
+        } else if (!moving && wasMoving[cam]) {
+            notify(statusLine(cam));
+        }
+        wasMoving[cam] = moving;
     }
-    wasMoving = moving;
 
     delay(5);
 }

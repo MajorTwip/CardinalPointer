@@ -11,25 +11,33 @@ import kotlin.test.assertTrue
 class ServoCodecTest {
 
     @Test
-    fun encodesSwivelAsAzimuth() {
-        assertEquals("AZ 12.5", ServoCodec.encode(Command.SetCameraSwivel(CameraDirection.North, 12.5f)))
+    fun encodesSwivelAsAzimuthWithChannelAndHomeOffset() {
+        assertEquals("AZ 0 102.5", ServoCodec.encode(Command.SetCameraSwivel(CameraDirection.North, 12.5f)))
     }
 
     @Test
-    fun encodesDepressionAsElevation() {
-        assertEquals("EL -20.0", ServoCodec.encode(Command.SetCameraDepression(CameraDirection.East, -20f)))
+    fun encodesDepressionAsElevationWithChannelAndHomeOffset() {
+        assertEquals("EL 1 70.0", ServoCodec.encode(Command.SetCameraDepression(CameraDirection.East, -20f)))
+    }
+
+    @Test
+    fun encodesDistinctChannelPerCameraDirection() {
+        assertEquals("AZ 0 90.0", ServoCodec.encode(Command.SetCameraSwivel(CameraDirection.North, 0f)))
+        assertEquals("AZ 1 90.0", ServoCodec.encode(Command.SetCameraSwivel(CameraDirection.East, 0f)))
+        assertEquals("AZ 2 90.0", ServoCodec.encode(Command.SetCameraSwivel(CameraDirection.South, 0f)))
+        assertEquals("AZ 3 90.0", ServoCodec.encode(Command.SetCameraSwivel(CameraDirection.West, 0f)))
     }
 
     @Test
     fun formatsSubDegreeMagnitudesWithSign() {
-        assertEquals("AZ -0.5", ServoCodec.encode(Command.SetCameraSwivel(CameraDirection.North, -0.5f)))
-        assertEquals("AZ 0.0", ServoCodec.encode(Command.SetCameraSwivel(CameraDirection.North, 0f)))
+        assertEquals("AZ 0 89.5", ServoCodec.encode(Command.SetCameraSwivel(CameraDirection.North, -0.5f)))
+        assertEquals("AZ 0 90.0", ServoCodec.encode(Command.SetCameraSwivel(CameraDirection.North, 0f)))
     }
 
     @Test
     fun roundsToOneDecimal() {
-        assertEquals("AZ 9.9", ServoCodec.encode(Command.SetCameraSwivel(CameraDirection.North, 9.94f)))
-        assertEquals("AZ 10.0", ServoCodec.encode(Command.SetCameraSwivel(CameraDirection.North, 9.96f)))
+        assertEquals("AZ 0 99.9", ServoCodec.encode(Command.SetCameraSwivel(CameraDirection.North, 9.94f)))
+        assertEquals("AZ 0 100.0", ServoCodec.encode(Command.SetCameraSwivel(CameraDirection.North, 9.96f)))
     }
 
     @Test
@@ -40,12 +48,12 @@ class ServoCodecTest {
     }
 
     @Test
-    fun decodesPositionLineToBothAxes() {
-        val updates = ServoCodec.decodeStatus("POS 120.0 60.0 MOVING", CameraDirection.South)
+    fun decodesPositionLineToBothAxesRelativeToHome() {
+        val updates = ServoCodec.decodeStatus("POS 2 120.0 60.0 MOVING")
         assertEquals(
             listOf(
-                StatusUpdate.CameraSwivel(CameraDirection.South, 120f),
-                StatusUpdate.CameraDepression(CameraDirection.South, 60f),
+                StatusUpdate.CameraSwivel(CameraDirection.South, 30f),
+                StatusUpdate.CameraDepression(CameraDirection.South, -30f),
             ),
             updates,
         )
@@ -53,25 +61,49 @@ class ServoCodecTest {
 
     @Test
     fun decodesIdlePositionLine() {
-        val updates = ServoCodec.decodeStatus("POS 90.0 90.0 IDLE", CameraDirection.North)
+        val updates = ServoCodec.decodeStatus("POS 0 90.0 90.0 IDLE")
         assertEquals(2, updates.size)
     }
 
     @Test
-    fun decodesErrorLine() {
-        val updates = ServoCodec.decodeStatus("ERR azimuth clamped", CameraDirection.North)
-        assertEquals(listOf(StatusUpdate.Error("azimuth clamped")), updates)
+    fun decodesEachChannelToItsOwnCameraDirection() {
+        assertEquals(
+            CameraDirection.North,
+            (ServoCodec.decodeStatus("POS 0 90.0 90.0 IDLE").first() as StatusUpdate.CameraSwivel).direction,
+        )
+        assertEquals(
+            CameraDirection.West,
+            (ServoCodec.decodeStatus("POS 3 90.0 90.0 IDLE").first() as StatusUpdate.CameraSwivel).direction,
+        )
+    }
+
+    @Test
+    fun decodesErrorLineWithoutChannel() {
+        val updates = ServoCodec.decodeStatus("ERR unknown command: XYZ")
+        assertEquals(listOf(StatusUpdate.Error("unknown command: XYZ")), updates)
+    }
+
+    @Test
+    fun decodesErrorLineWithChannelPrefix() {
+        val updates = ServoCodec.decodeStatus("ERR 2 azimuth clamped")
+        assertEquals(listOf(StatusUpdate.Error("cam 2: azimuth clamped")), updates)
     }
 
     @Test
     fun ignoresBlankAndUnknownLines() {
-        assertTrue(ServoCodec.decodeStatus("   ", CameraDirection.North).isEmpty())
-        assertTrue(ServoCodec.decodeStatus("WAT 1 2", CameraDirection.North).isEmpty())
+        assertTrue(ServoCodec.decodeStatus("   ").isEmpty())
+        assertTrue(ServoCodec.decodeStatus("WAT 1 2").isEmpty())
+    }
+
+    @Test
+    fun ignoresPositionLinesWithMissingOrOutOfRangeChannel() {
+        assertTrue(ServoCodec.decodeStatus("POS 9 120.0 60.0 MOVING").isEmpty())
+        assertTrue(ServoCodec.decodeStatus("POS abc 120.0 60.0 MOVING").isEmpty())
     }
 
     @Test
     fun toleratesPartialPositionLine() {
-        val updates = ServoCodec.decodeStatus("POS 45.0", CameraDirection.West)
-        assertEquals(listOf(StatusUpdate.CameraSwivel(CameraDirection.West, 45f)), updates)
+        val updates = ServoCodec.decodeStatus("POS 3 45.0")
+        assertEquals(listOf(StatusUpdate.CameraSwivel(CameraDirection.West, -45f)), updates)
     }
 }

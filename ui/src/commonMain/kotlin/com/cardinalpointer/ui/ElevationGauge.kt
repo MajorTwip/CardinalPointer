@@ -4,6 +4,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -26,20 +28,34 @@ fun ElevationGauge(
     onDepressionChange: (Float) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val currentDepression by rememberUpdatedState(depressionDegrees)
+    val currentOnDepressionChange by rememberUpdatedState(onDepressionChange)
+
     Canvas(
         modifier = modifier
             .size(190.dp)
             .pointerInput(Unit) {
-                fun handle(position: Offset) {
-                    val pivot = Offset(size.width * 0.18f, size.height * 0.18f)
+                val pivot = Offset(size.width * 0.18f, size.height * 0.18f)
+                fun phiOf(position: Offset): Float {
                     val dx = position.x - pivot.x
                     val dy = position.y - pivot.y
-                    val phi = atan2(dy, dx) * 180f / PI.toFloat()
-                    onDepressionChange((-phi).coerceIn(DEPRESSION_MIN, DEPRESSION_MAX))
+                    return atan2(dy, dx) * 180f / PI.toFloat()
                 }
+                var lastPhi = 0f
+                var value = 0f
                 detectDragGestures(
-                    onDragStart = { handle(it) },
-                    onDrag = { change, _ -> change.consume(); handle(change.position) }
+                    onDragStart = { position ->
+                        lastPhi = phiOf(position)
+                        value = currentDepression
+                    },
+                    onDrag = { change, _ ->
+                        change.consume()
+                        val phi = phiOf(change.position)
+                        value = (value - shortestAngleDelta(phi, lastPhi))
+                            .coerceIn(DEPRESSION_MIN, DEPRESSION_MAX)
+                        lastPhi = phi
+                        currentOnDepressionChange(value)
+                    }
                 )
             }
     ) {

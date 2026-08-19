@@ -1,16 +1,26 @@
 #pragma once
 
 // -------------------------------------------------------------------------
+// Camera count
+// -------------------------------------------------------------------------
+// One two-axis (azimuth+elevation) aimer per camera. Must match the app's
+// `CameraDirection.entries` order: index 0=North, 1=East, 2=South, 3=West.
+static constexpr int CAMERA_COUNT = 4;
+
+// -------------------------------------------------------------------------
 // Servo wiring
 // -------------------------------------------------------------------------
-// Two standard 5V hobby servos driven by hardware PWM (LEDC) via ESP32Servo.
-// Power the servos from a dedicated 5V rail and tie its ground to the ESP32
-// ground. Do NOT power servos from the ESP32 3V3 pin.
+// 8 standard 5V hobby servos (2 per camera) driven by hardware PWM (LEDC) via
+// ESP32Servo. Power the servos from a dedicated 5V rail and tie its ground to
+// the ESP32 ground. Do NOT power servos from the ESP32 3V3 pin.
 //
 // AZIMUTH  = horizontal aim (pan / "swivel" in the app domain)
 // ELEVATION = vertical aim  (tilt / "depression" in the app domain)
-static constexpr int PIN_SERVO_AZIMUTH   = 18;
-static constexpr int PIN_SERVO_ELEVATION = 19;
+//
+// NOTE: these GPIOs are placeholders — confirm/adjust against your actual
+// wiring before flashing. Indexed the same way as CameraDirection above.
+static constexpr int PIN_SERVO_AZIMUTH[CAMERA_COUNT]   = {18, 19, 21, 22};
+static constexpr int PIN_SERVO_ELEVATION[CAMERA_COUNT] = {23, 25, 26, 27};
 
 // -------------------------------------------------------------------------
 // Servo pulse calibration (microseconds)

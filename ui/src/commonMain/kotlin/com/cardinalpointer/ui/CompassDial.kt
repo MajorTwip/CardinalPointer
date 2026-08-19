@@ -4,6 +4,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -26,20 +28,29 @@ fun CompassDial(
     onSwivelChange: (Float) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val currentCameras by rememberUpdatedState(cameras)
+    val currentOnSwivelChange by rememberUpdatedState(onSwivelChange)
+
     Canvas(
         modifier = modifier
             .size(220.dp)
             .pointerInput(selected) {
-                fun handle(position: Offset) {
-                    val center = Offset(size.width / 2f, size.height / 2f)
-                    val bearing = bearingFromPoint(position, center)
-                    val delta = shortestAngleDelta(bearing, selected.bearingDegrees)
-                        .coerceIn(-SWIVEL_RANGE, SWIVEL_RANGE)
-                    onSwivelChange(delta)
-                }
+                val center = Offset(size.width / 2f, size.height / 2f)
+                var lastBearing = 0f
+                var value = 0f
                 detectDragGestures(
-                    onDragStart = { handle(it) },
-                    onDrag = { change, _ -> change.consume(); handle(change.position) }
+                    onDragStart = { position ->
+                        lastBearing = bearingFromPoint(position, center)
+                        value = currentCameras.getValue(selected).swivelDegrees
+                    },
+                    onDrag = { change, _ ->
+                        change.consume()
+                        val bearing = bearingFromPoint(change.position, center)
+                        value = (value + shortestAngleDelta(bearing, lastBearing))
+                            .coerceIn(-SWIVEL_RANGE, SWIVEL_RANGE)
+                        lastBearing = bearing
+                        currentOnSwivelChange(value)
+                    }
                 )
             }
     ) {

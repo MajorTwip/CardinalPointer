@@ -18,6 +18,7 @@ import kotlin.test.assertTrue
 private class FakePeripheral : BlePeripheral {
     val writes = mutableListOf<String>()
     val incoming = MutableSharedFlow<ByteArray>(extraBufferCapacity = 16)
+    val disconnects = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     var connected = false
 
     override suspend fun connect(): Result<Unit> {
@@ -32,6 +33,8 @@ private class FakePeripheral : BlePeripheral {
 
     override fun notifications(): Flow<ByteArray> = incoming
 
+    override fun connectionLost(): Flow<Unit> = disconnects
+
     override suspend fun close() {
         connected = false
     }
@@ -42,18 +45,18 @@ class BleTransportTest {
     @Test
     fun sendEncodesAndWritesSupportedCommand() = runTest {
         val peripheral = FakePeripheral()
-        val transport = BleTransport(peripheral, CameraDirection.North)
+        val transport = BleTransport(peripheral)
 
         val result = transport.send(Command.SetCameraSwivel(CameraDirection.North, 30f))
 
         assertTrue(result.isSuccess)
-        assertEquals(listOf("AZ 30.0"), peripheral.writes)
+        assertEquals(listOf("AZ 0 120.0"), peripheral.writes)
     }
 
     @Test
     fun sendFailsForUnsupportedCommand() = runTest {
         val peripheral = FakePeripheral()
-        val transport = BleTransport(peripheral, CameraDirection.North)
+        val transport = BleTransport(peripheral)
 
         val result = transport.send(Command.Erect)
 
@@ -61,11 +64,22 @@ class BleTransportTest {
         assertTrue(peripheral.writes.isEmpty())
     }
 
+    @Test
+    fun routesCommandsForDifferentCamerasThroughTheSameTransport() = runTest {
+        val peripheral = FakePeripheral()
+        val transport = BleTransport(peripheral)
+
+        transport.send(Command.SetCameraSwivel(CameraDirection.North, 0f))
+        transport.send(Command.SetCameraSwivel(CameraDirection.West, 0f))
+
+        assertEquals(listOf("AZ 0 90.0", "AZ 3 90.0"), peripheral.writes)
+    }
+
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
-    fun statusNotificationsAreDecodedForConfiguredDirection() = runTest {
+    fun statusNotificationsAreDecodedPerChannel() = runTest {
         val peripheral = FakePeripheral()
-        val transport = BleTransport(peripheral, CameraDirection.East)
+        val transport = BleTransport(peripheral)
 
         val collected = mutableListOf<StatusUpdate>()
         val job = launch {
@@ -73,15 +87,42 @@ class BleTransportTest {
         }
         runCurrent() // let the collector subscribe before we emit (replay = 0)
 
-        peripheral.incoming.emit("POS 120.0 60.0 MOVING".encodeToByteArray())
+        peripheral.incoming.emit("POS 1 120.0 60.0 MOVING".encodeToByteArray())
         peripheral.incoming.emit("ERR out of range".encodeToByteArray())
         job.join()
 
         assertEquals(
             listOf(
-                StatusUpdate.CameraSwivel(CameraDirection.East, 120f),
-                StatusUpdate.CameraDepression(CameraDirection.East, 60f),
+                StatusUpdate.CameraSwivel(CameraDirection.East, 30f),
+                StatusUpdate.CameraDepression(CameraDirection.East, -30f),
                 StatusUpdate.Error("out of range"),
+            ),
+            collected,
+        )
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun statusNotificationsForDifferentChannelsRouteToDifferentCameras() = runTest {
+        val peripheral = FakePeripheral()
+        val transport = BleTransport(peripheral)
+
+        val collected = mutableListOf<StatusUpdate>()
+        val job = launch {
+            collected += transport.subscribeStatusUpdates().take(4).toList()
+        }
+        runCurrent()
+
+        peripheral.incoming.emit("POS 0 90.0 90.0 IDLE".encodeToByteArray())
+        peripheral.incoming.emit("POS 2 90.0 90.0 IDLE".encodeToByteArray())
+        job.join()
+
+        assertEquals(
+            listOf(
+                StatusUpdate.CameraSwivel(CameraDirection.North, 0f),
+                StatusUpdate.CameraDepression(CameraDirection.North, 0f),
+                StatusUpdate.CameraSwivel(CameraDirection.South, 0f),
+                StatusUpdate.CameraDepression(CameraDirection.South, 0f),
             ),
             collected,
         )

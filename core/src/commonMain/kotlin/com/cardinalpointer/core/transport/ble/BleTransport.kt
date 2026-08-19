@@ -1,6 +1,5 @@
 package com.cardinalpointer.core.transport.ble
 
-import com.cardinalpointer.core.domain.CameraDirection
 import com.cardinalpointer.core.transport.Command
 import com.cardinalpointer.core.transport.StatusUpdate
 import com.cardinalpointer.core.transport.Transport
@@ -11,19 +10,14 @@ import kotlinx.coroutines.flow.transform
  * [Transport] backed by the ESP32 servo interface over BLE.
  *
  * Composes a platform [BlePeripheral] with [ServoCodec]: commands are encoded to
- * ASCII lines and written to the command characteristic; status notifications
- * are parsed back into [StatusUpdate]s.
- *
- * Because the firmware is a single two-axis aimer, one transport instance maps
- * to one [direction] (which camera/device this ESP32 points).
+ * ASCII lines (each carrying a camera-channel argument) and written to the
+ * command characteristic; status notifications are parsed back into
+ * [StatusUpdate]s already attributed to the right camera by [ServoCodec]. One
+ * transport instance (one BLE connection) serves all 4 cameras on the ESP32.
  *
  * @param peripheral platform BLE connection to the servo device
- * @param direction  camera slot this device aims (default [CameraDirection.North])
  */
-class BleTransport(
-    private val peripheral: BlePeripheral,
-    private val direction: CameraDirection = CameraDirection.North,
-) : Transport {
+class BleTransport(private val peripheral: BlePeripheral) : Transport {
 
     /** Connect to the peripheral. Call once before sending commands. */
     suspend fun connect(): Result<Unit> = peripheral.connect()
@@ -43,7 +37,7 @@ class BleTransport(
 
     override fun subscribeStatusUpdates(): Flow<StatusUpdate> =
         peripheral.notifications().transform { bytes ->
-            ServoCodec.decodeStatus(bytes.decodeToString(), direction)
+            ServoCodec.decodeStatus(bytes.decodeToString())
                 .forEach { emit(it) }
         }
 }
